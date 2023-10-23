@@ -133,6 +133,9 @@ public class HexedGenerator implements Cons<Tiles>{
             for(int y = 0; y < height / (h/2) - 2; y++){
                 int cx = (int)(x * Hex.spacing*1.5 + (y%2)* Hex.spacing*3.0/4) + Hex.spacing/2;
                 int cy = (int)(y * h / 2) + Hex.spacing/2;
+                if (cx >= width || cy >= height) {
+                    continue;
+                }
                 array.add(Point2.pack(cx, cy));
             }
         }
