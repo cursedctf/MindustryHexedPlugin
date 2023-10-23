@@ -265,7 +265,7 @@ public class HexedMod extends Plugin{
         if(registered) return;
         registered = true;
 
-        handler.<Player>register("pow", "Sacrifice an Eclipse", "<challenge>", (args, player) -> {
+        handler.<Player>register("pow", "<challenge>", "Sacrifice an Eclipse", (args, player) -> {
             var success = Units.any(0, 0, (float)world.width(), (float)world.height(), u -> u.team == player.team() && u.type == UnitTypes.eclipse);
             if (!success) {
                 player.sendMessage("[scarlet]Hex harder.");
