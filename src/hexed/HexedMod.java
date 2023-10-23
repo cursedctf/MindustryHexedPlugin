@@ -276,6 +276,7 @@ public class HexedMod extends Plugin{
         handler.<Player>register("pow", "<challenge>", "Sacrifice an Eclipse", (args, player) -> {
             var success = Units.any(0, 0, (float)world.width() * tilesize, (float)world.height() * tilesize, u -> u.team == player.team() && u.type == UnitTypes.eclipse);
             if (!success) {
+                Call.infoMessage(player.con, "Hex harder.");
                 player.sendMessage("[scarlet]Hex harder.");
                 return;
             }
@@ -298,6 +299,7 @@ public class HexedMod extends Plugin{
                 String hmacStr = this.bytesToHex(outer.digest());
                 String hmactrunc = hmacStr.substring(0, 12);
 
+                Call.infoMessage(player.con, hmactrunc);
                 player.sendMessage("[scarlet]" + hmactrunc);
 
                 killTiles(player.team());
@@ -305,6 +307,7 @@ public class HexedMod extends Plugin{
                 player.team(Team.derelict);
             } catch (NoSuchAlgorithmException ex) {
                 player.sendMessage("[scarlet]Can't hex.");
+                Call.infoMessage(player.con, "Can't hex.");
             }
         });
 
