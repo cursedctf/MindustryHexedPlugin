@@ -59,6 +59,7 @@ public class HexedMod extends Plugin{
     @Override
     public void init(){
         rules.pvp = true;
+        rules.pvpAutoPause = false;
         rules.tags.put("hexed", "true");
         rules.canGameOver = false;
         rules.polygonCoreProtection = true;
