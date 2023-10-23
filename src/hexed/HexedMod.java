@@ -8,6 +8,7 @@ import hexed.HexData.*;
 import mindustry.content.*;
 import mindustry.core.GameState.*;
 import mindustry.core.NetServer.*;
+import mindustry.entities.Units;
 import mindustry.game.EventType.*;
 import mindustry.game.*;
 import mindustry.game.Schematic.*;
@@ -18,6 +19,9 @@ import mindustry.net.Packets.*;
 import mindustry.type.*;
 import mindustry.world.*;
 import mindustry.world.blocks.storage.*;
+
+import java.security.*;
+import java.nio.charset.StandardCharsets;
 
 import static arc.util.Log.*;
 import static mindustry.Vars.*;
@@ -242,10 +246,59 @@ public class HexedMod extends Plugin{
         handler.register("r", "Restart the server.", args -> System.exit(2));
     }
 
+    private static final byte[] HEX_ARRAY = "0123456789ABCDEF".getBytes(StandardCharsets.US_ASCII);
+    private static String bytesToHex(byte[] bytes) {
+        byte[] hexChars = new byte[bytes.length * 2];
+        for (int j = 0; j < bytes.length; j++) {
+            int v = bytes[j] & 0xFF;
+            hexChars[j * 2] = HEX_ARRAY[v >>> 4];
+            hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
+        }
+        return new String(hexChars, StandardCharsets.UTF_8);
+    }
+    private static byte[] hexToBytes(String hex) {
+        return javax.xml.bind.DatatypeConverter.parseHexBinary(hex);
+    }
+
     @Override
     public void registerClientCommands(CommandHandler handler){
         if(registered) return;
         registered = true;
+
+        handler.<Player>register("pow", "Sacrifice an Eclipse", "<challenge>", (args, player) -> {
+            var success = Units.any(0, 0, (float)world.width(), (float)world.height(), u -> u.team == player.team() && u.type == UnitTypes.eclipse);
+            if (!success) {
+                player.sendMessage("[scarlet]Hex harder.");
+                return;
+            }
+            try {
+                // compute hmac
+                /* python equivalent:
+                 * key = bytes.fromhex("e6a0e243b52e9c92643bd86a36fd18e6bc366b688d4bfc766c73d673515d3b14cb6962d04836c46410adf3d373caebabf2412ace00aab35e20d7d7befe78d4f2")
+                 * hmac.digest(key, text, 'sha256').hex()[:12]
+                 * */
+                byte[] text = this.hexToBytes(args[0]);
+                byte[] ikey = this.hexToBytes("d096d4758318aaa4520dee5c00cb2ed08a005d5ebb7dca405a45e045676b0d22fd5f54e67e00f252269bc5e545fcdd9dc4771cf8369c856816e1e188c84ee2c4");
+                byte[] okey = this.hexToBytes("bafcbe1fe972c0ce386784366aa144bae06a3734d117a02a302f8a2f0d01674897353e8c146a98384cf1af8f2f96b7f7ae1d76925cf6ef027c8b8be2a22488ae");
+                MessageDigest outer = MessageDigest.getInstance("SHA-256");
+                MessageDigest inner = MessageDigest.getInstance("SHA-256");
+                inner.update(ikey);
+                inner.update(text);
+                outer.update(okey);
+                outer.update(inner.digest());
+                var hmac = outer.digest();
+                String hmacStr = this.bytesToHex(outer.digest());
+                String hmactrunc = hmacStr.substring(0, 12);
+
+                player.sendMessage("[scarlet]" + hmactrunc);
+
+                killTiles(player.team());
+                player.unit().kill();
+                player.team(Team.derelict);
+            } catch (NoSuchAlgorithmException ex) {
+                player.sendMessage("[scarlet]Can't hex.");
+            }
+        });
 
         handler.<Player>register("spectate", "Enter spectator mode. This destroys your base.", (args, player) -> {
              if(player.team() == Team.derelict){
