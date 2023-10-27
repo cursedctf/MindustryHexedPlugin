@@ -441,6 +441,8 @@ public class HexedMod extends Plugin{
                 }
             }
         }
+       data.data(team).dying = false;
+       data.data(team).chosen = false;
     }
 
     void loadout(Player player, int x, int y){
