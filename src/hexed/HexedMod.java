@@ -329,7 +329,7 @@ public class HexedMod extends Plugin{
                     if(team.id > 5 && !team.active() && !players.contains(p -> p.team() == team) && !data.data(team).dying && !data.data(team).chosen) {
                         teamId = team.id;
                         tokenToId.put(strToken, teamId);
-                        System.out.printf("teamId is %d\n", teamId);
+                        idToToken.put(teamId, token);
                         break;
                     }
                 }
