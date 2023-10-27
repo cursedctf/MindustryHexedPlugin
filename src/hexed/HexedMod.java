@@ -22,6 +22,7 @@ import mindustry.world.blocks.storage.*;
 
 import java.security.*;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 
 import static arc.util.Log.*;
 import static mindustry.Vars.*;
@@ -42,8 +43,6 @@ public class HexedMod extends Plugin{
 
     private final static int updateTime = 60 * 2;
 
-    private final static int winCondition = 10;
-
     private final static int timerBoard = 0, timerUpdate = 1, timerWinCheck = 2;
 
     private final Rules rules = new Rules();
@@ -55,6 +54,11 @@ public class HexedMod extends Plugin{
     private Schematic start;
     private double counter = 0f;
     private int lastMin;
+
+    /** Maps token -> team ID */
+    private HashMap<String, Integer> tokenToId = new HashMap<>();
+    /** Maps team ID -> token */
+    private IntMap<byte[]> idToToken = new IntMap<>();
 
     @Override
     public void init(){
@@ -110,13 +114,6 @@ public class HexedMod extends Plugin{
                     data.updateControl();
                 }
 
-                if(interval.get(timerWinCheck, 60 * 2)){
-                    Seq<Player> players = data.getLeaderboard();
-                    if(!players.isEmpty() && data.getControlled(players.first()).size >= winCondition && players.size > 1 && data.getControlled(players.get(1)).size <= 1){
-                        endGame();
-                    }
-                }
-
                 counter += Time.delta;
 
                 //kick everyone and restart w/ the script
@@ -143,28 +140,24 @@ public class HexedMod extends Plugin{
 
         Events.on(PlayerLeave.class, event -> {
             if(active() && event.player.team() != Team.derelict){
+                Seq<Player> players = data.getLeaderboard();
+                for (Player player : players) {
+                    // don't kill units if there's a player left on that team
+                    if (player != event.player && player.team() == event.player.team()) {
+                        return;
+                    }
+                }
+                var token = idToToken.get(event.player.team().id);
+                if (token != null) {
+                    idToToken.remove(event.player.team().id);
+                    tokenToId.remove(token);
+                }
                 killTiles(event.player.team());
             }
         });
 
         Events.on(PlayerJoin.class, event -> {
-            if(!active() || event.player.team() == Team.derelict) return;
-
-            Seq<Hex> copy = data.hexes().copy();
-            copy.shuffle();
-            Hex hex = copy.find(h -> h.controller == null && h.spawnTime.get());
-
-            if(hex != null){
-                loadout(event.player, hex.x, hex.y);
-                Core.app.post(() -> data.data(event.player).chosen = false);
-                hex.findController();
-            }else{
-                Call.infoMessage(event.player.con, "There are currently no empty hex spaces available.\nAssigning into spectator mode.");
-                event.player.unit().kill();
-                event.player.team(Team.derelict);
-            }
-
-            data.data(event.player).lastMessage.reset();
+            return;
         });
 
         Events.on(ProgressIncreaseEvent.class, event -> updateText(event.player));
@@ -175,19 +168,9 @@ public class HexedMod extends Plugin{
 
         TeamAssigner prev = netServer.assigner;
         netServer.assigner = (player, players) -> {
-            Seq<Player> arr = Seq.with(players);
-
             if(active()){
-                //pick first inactive team
-                for(Team team : Team.all){
-                    if(team.id > 5 && !team.active() && !arr.contains(p -> p.team() == team) && !data.data(team).dying && !data.data(team).chosen){
-                        data.data(team).chosen = true;
-                        return team;
-                    }
-                }
-                Call.infoMessage(player.con, "There are currently no empty hex spaces available.\nAssigning into spectator mode.");
                 return Team.derelict;
-            }else{
+            } else {
                 return prev.assign(player, players);
             }
         };
@@ -273,9 +256,10 @@ public class HexedMod extends Plugin{
         if(registered) return;
         registered = true;
 
-        handler.<Player>register("pow", "<challenge>", "Sacrifice an Eclipse", (args, player) -> {
+        handler.<Player>register("pow", "Sacrifice an Eclipse", (args, player) -> {
             var success = Units.any(0, 0, (float)world.width() * tilesize, (float)world.height() * tilesize, u -> u.team == player.team() && u.type == UnitTypes.eclipse);
-            if (!success) {
+            var token = idToToken.get(player.team().id);
+            if (!success || token == null) {
                 Call.infoMessage(player.con, "Hex harder.");
                 player.sendMessage("[scarlet]Hex harder.");
                 return;
@@ -284,15 +268,14 @@ public class HexedMod extends Plugin{
                 // compute hmac
                 /* python equivalent:
                  * key = bytes.fromhex("e6a0e243b52e9c92643bd86a36fd18e6bc366b688d4bfc766c73d673515d3b14cb6962d04836c46410adf3d373caebabf2412ace00aab35e20d7d7befe78d4f2")
-                 * hmac.digest(key, text, 'sha256').hex()[:12]
+                 * hmac.digest(key, token, 'sha256').hex()[:12]
                  * */
-                byte[] text = this.hexToBytes(args[0]);
                 byte[] ikey = this.hexToBytes("d096d4758318aaa4520dee5c00cb2ed08a005d5ebb7dca405a45e045676b0d22fd5f54e67e00f252269bc5e545fcdd9dc4771cf8369c856816e1e188c84ee2c4");
                 byte[] okey = this.hexToBytes("bafcbe1fe972c0ce386784366aa144bae06a3734d117a02a302f8a2f0d01674897353e8c146a98384cf1af8f2f96b7f7ae1d76925cf6ef027c8b8be2a22488ae");
                 MessageDigest outer = MessageDigest.getInstance("SHA-256");
                 MessageDigest inner = MessageDigest.getInstance("SHA-256");
                 inner.update(ikey);
-                inner.update(text);
+                inner.update(token);
                 outer.update(okey);
                 outer.update(inner.digest());
                 var hmac = outer.digest();
@@ -302,26 +285,70 @@ public class HexedMod extends Plugin{
                 Call.infoMessage(player.con, hmactrunc);
                 player.sendMessage("[scarlet]" + hmactrunc);
 
+                idToToken.remove(player.team().id);
+                tokenToId.remove(token);
                 killTiles(player.team());
                 player.unit().kill();
-                player.team(Team.derelict);
+                for (Player teamPlayer : player.team().data().players) {
+                    teamPlayer.team(Team.derelict);
+                }
             } catch (NoSuchAlgorithmException ex) {
-                player.sendMessage("[scarlet]Can't hex.");
                 Call.infoMessage(player.con, "Can't hex.");
+                player.sendMessage("[scarlet]Can't hex.");
             }
         });
 
-        handler.<Player>register("spectate", "Enter spectator mode. This destroys your base.", (args, player) -> {
-             if(player.team() == Team.derelict){
-                 player.sendMessage("[scarlet]You're already spectating.");
-             }else{
-                 killTiles(player.team());
-                 player.unit().kill();
-                 player.team(Team.derelict);
-             }
+        handler.<Player>register("join", "<token>", "Join a team using your token.", (args, player) -> {
+            String strToken = args[0];
+            byte[] token = this.hexToBytes(strToken);
+            // token is 8 bytes, token[1] is a parity byte
+            if (token.length != 8) {
+                player.sendMessage("[scarlet]Invalid token.");
+                return;
+            }
+            if ((token[0] ^ token[2] ^ token[3] ^ token[4] ^ token[5] ^ token[6] ^ token[7]) != token[1]) {
+                player.sendMessage("[scarlet]Invalid token.");
+                return;
+            }
+            if (player.team() != Team.derelict) {
+                player.sendMessage("[scarlet]Must be spectating to join a team.");
+                return;
+            }
+            var teamId = tokenToId.get(strToken);
+            if (teamId == null) {
+                Seq<Player> players = data.getLeaderboard();
+                for(Team team : Team.all){
+                    if(team.id > 5 && !team.active() && !players.contains(p -> p.team() == team) && !data.data(team).dying && !data.data(team).chosen) {
+                        teamId = team.id;
+                        tokenToId.put(strToken, teamId);
+                        System.out.printf("teamId is %d\n", teamId);
+                        break;
+                    }
+                }
+            }
+            if (teamId == null) {
+                Call.infoMessage(player.con, "There are currently no empty hex spaces available.\nAssigning into spectator mode.");
+                return;
+            }
+            var team = Team.all[teamId];
+            player.team(team);
+            if (data.data(team).chosen == false) {
+                data.data(team).chosen = true;
+                Seq<Hex> copy = data.hexes().copy();
+                copy.shuffle();
+                Hex hex = copy.find(h -> h.controller == null && h.spawnTime.get());
+                if(hex != null) {
+                    loadout(player, hex.x, hex.y);
+                    hex.findController();
+                } else {
+                    Call.infoMessage(player.con, "There are currently no empty hex spaces available.\nAssigning into spectator mode.");
+                    player.unit().kill();
+                    player.team(Team.derelict);
+                }
+            }
         });
 
-        handler.<Player>register("captured", "Dispay the number of hexes you have captured.", (args, player) -> {
+        handler.<Player>register("captured", "Display the number of hexes you have captured.", (args, player) -> {
             if(player.team() == Team.derelict){
                 player.sendMessage("[scarlet]You're spectating.");
             }else{
