@@ -150,7 +150,7 @@ public class HexedMod extends Plugin{
                 var token = idToToken.get(event.player.team().id);
                 if (token != null) {
                     idToToken.remove(event.player.team().id);
-                    tokenToId.remove(token);
+                    tokenToId.remove(bytesToHex(token).toLowerCase());
                 }
                 killTiles(event.player.team());
             }
@@ -307,7 +307,7 @@ public class HexedMod extends Plugin{
         });
 
         handler.<Player>register("join", "<token>", "Join a team using your token.", (args, player) -> {
-            String strToken = args[0];
+            String strToken = args[0].toLowerCase();
             byte[] token = this.hexToBytes(strToken);
             // token is 8 bytes, token[1] is a parity byte
             if (token.length != 8) {
