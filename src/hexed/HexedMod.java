@@ -256,6 +256,14 @@ public class HexedMod extends Plugin{
         if(registered) return;
         registered = true;
 
+        /*
+        handler.<Player>register("eclipse", "Create an Eclipse", (args, player) -> {
+            var u = UnitTypes.eclipse.create(player.team());
+            u.set(player.unit().x, player.unit().y);
+            u.add();
+        });
+        */
+
         handler.<Player>register("pow", "Sacrifice an Eclipse", (args, player) -> {
             var success = Units.any(0, 0, (float)world.width() * tilesize, (float)world.height() * tilesize, u -> u.team == player.team() && u.type == UnitTypes.eclipse);
             var token = idToToken.get(player.team().id);
